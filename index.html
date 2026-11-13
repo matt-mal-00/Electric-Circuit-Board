@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="id"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Papan Sirkuit Virtual</title>
+<style>
+:root{--bg:#f4f6f3;--card:#fff;--ink:#1d2b24;--mut:#66756d;--line:#cfd8d2;--grid:#bcc8c0;--acc:#1f8a5b;--bat:#d9822b;--res:#2f6fb5;--amm:#c0392b;--vol:#7b4fb8;--wire:#2d3b34;--lamp:#a88400;--sw:#5a6d62;--cap:#b84f8f;--coil:#13878d;--dio:#8a5a2b;--tp:#0b6fa4;--ts:#6a8f1f;--board:#e3ebe5;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#121815;--card:#1b2420;--ink:#e6efe9;--mut:#8fa197;--line:#2e3b35;--grid:#3d4c44;--acc:#3fc58a;--bat:#f0a04e;--res:#6aa6ea;--amm:#ef6a5b;--vol:#b590ee;--wire:#cfe0d6;--lamp:#f2cc44;--sw:#a9bdb1;--cap:#e880bd;--coil:#4fd0d6;--dio:#d9a066;--tp:#5bb6ea;--ts:#a6d34f;--board:#16201b}}
+*{box-sizing:border-box}html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,"Segoe UI",sans-serif;padding:14px}
+h1{font-size:18px;margin:0 0 2px}p.s{margin:0 0 12px;color:var(--mut);font-size:13px}
+.tools{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;align-items:center}
+button,select,input{font:inherit;color:var(--ink)}
+.tools button,.tools select{background:var(--card);border:1.5px solid var(--line);border-radius:8px;padding:6px 10px;cursor:pointer;font-size:13px}
+.tools button.on{border-color:var(--acc);background:var(--acc);color:#fff}
+.tools .t{color:var(--mut);font-size:13px;margin-left:auto;font-variant-numeric:tabular-nums}
+.wrap{display:grid;grid-template-columns:1fr;gap:10px;max-width:1000px}
+@media(min-width:860px){.wrap{grid-template-columns:1fr 250px}}
+.board{background:var(--board);border:1px solid var(--line);border-radius:12px;overflow-x:auto}
+svg{display:block;width:100%;min-width:480px;height:auto;touch-action:pan-x pan-y;user-select:none}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;font-size:13px}
+.card h2{font-size:14px;margin:0 0 8px}.card label{display:block;margin:8px 0 3px;color:var(--mut);font-size:12px}
+.card select,.card input{width:100%;padding:6px 8px;border:1.5px solid var(--line);border-radius:7px;background:var(--bg)}
+.card button{margin-top:10px;width:100%;padding:7px;border:1.5px solid var(--acc);color:var(--acc);background:none;border-radius:7px;cursor:pointer}
+.card .del{border-color:var(--amm);color:var(--amm)}
+.ro{margin-top:10px;line-height:1.7;font-variant-numeric:tabular-nums}.hint{color:var(--mut);line-height:1.5}
+body.fs h1,body.fs p.s{display:none}body.fs .wrap{max-width:none}body.fs svg{min-width:0}
+</style><link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#1f8a5b">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Sirkuit">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+</head><body>
+<h1 id="h1"></h1>
+<p class="s" id="ps"></p>
+<div class="tools" id="tools"></div>
+<div class="tools" id="ctl"></div>
+<div class="wrap">
+ <div class="board"><svg id="sv" viewBox="0 0 680 380"></svg></div>
+ <div class="card" id="panel"></div>
+ <div class="card" id="gr" style="grid-column:1/-1;display:none"><div class="tools" id="grc"></div><canvas id="cv" style="width:100%;height:210px;display:block"></canvas></div>
+</div>
+<script>
+const COLS=16,ROWS=9,SP=40,OX=30,OY=30,DT=5e-5,LAMP_P=0.3;
+const T={bat:{n:"Baterai",c:"--bat",v:9,u:"V"},res:{n:"Resistor",c:"--res",v:100,u:"Ω"},lamp:{n:"Lampu",c:"--lamp",v:100,u:"Ω"},sw:{n:"Saklar",c:"--sw"},cap:{n:"Kapasitor",c:"--cap",v:100,u:"µF"},coil:{n:"Kumparan",c:"--coil",v:100,u:"mH"},dio:{n:"Dioda",c:"--dio"},prim:{n:"Coil primer",c:"--tp",v:200,u:"N"},sek:{n:"Coil sekunder",c:"--ts",v:100,u:"N"},amm:{n:"Amperemeter",c:"--amm"},vol:{n:"Voltmeter",c:"--vol"},wire:{n:"Kabel",c:"--wire"}};
+let comps=[],sel=null,tool="sel",nid=1,drag=null,R={},ph={},run=true,mode="conv",scale=0.01,time=0,acc=0,pi=0;
+const sv=document.getElementById("sv"),panel=document.getElementById("panel"),tb=document.getElementById("tools"),ctl=document.getElementById("ctl");
+let g0="";for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++)g0+=`<circle cx="${OX+c*SP}" cy="${OY+r*SP}" r="3" fill="var(--grid)"/>`;
+sv.innerHTML=g0+'<g id="dyn"></g>';const dyn=document.getElementById("dyn");
+let LG="id",fs=false;
+const D={id:{bat:"Sumber daya",res:"Resistor",lamp:"Lampu",sw:"Saklar",cap:"Kapasitor",coil:"Kumparan",dio:"Dioda",prim:"Coil primer",sek:"Coil sekunder",amm:"Amperemeter",vol:"Voltmeter",wire:"Kabel",sel:"Pilih",h1:"Papan Sirkuit Virtual",ps:"Pilih komponen, lalu seret dari satu titik ke titik lain. Klik komponen untuk mengganti jenis atau nilainya. Klik saklar untuk membuka atau menutupnya.",closed:"tutup",open:"buka",volt:"Tegangan",curr:"Arus",pow:"Daya",energy:"Energi",info:"Keterangan",hint:"Pilih alat di atas lalu seret di antara dua titik. Sumber daya: ujung awal adalah kutub positif (+); ubah ke AC atau DC lewat panel. Pasang amperemeter secara seri dan voltmeter secara paralel. Titik kuning = arus konvensional (+ ke −), titik biru = aliran elektron (− ke +). Titik hijau = tersambung, titik merah = ujung terbuka. Komponen hanya tersambung di kedua ujungnya, bukan di titik tengah garisnya.",count:"Komponen",sel2:"Komponen terpilih",type:"Jenis (ganti komponen)",srcT:"Jenis sumber",dc:"DC (searah)",ac:"AC (bolak-balik)",amp:"Amplitudo",val:"Nilai",freq:"Frekuensi",openSw:"Buka saklar",closeSw:"Tutup saklar",del:"Hapus komponen",conv:"Arus konvensional",elec:"Aliran elektron",off:"Tanpa animasi",pause:"Jeda",play:"Jalankan",time:"Waktu",reset:"Reset waktu",ex:"Contoh",clear:"Kosongkan",lang:"English",full:"Layar penuh",exitFs:"Keluar layar penuh",graph:"Grafik V-t",none:"— tidak ada —",win:"Jendela",kopl:"Kopling k",ratio:"Rasio Ns/Np",vmode:"Mode pengukuran",vdc:"DC (rata-rata)",vac:"AC (RMS)",vpk:"AC (Vmax / puncak)",vhint:"Sinyal AC terdeteksi: ganti ke mode AC (RMS)"},
+en:{bat:"Power source",res:"Resistor",lamp:"Lamp",sw:"Switch",cap:"Capacitor",coil:"Coil",dio:"Diode",prim:"Primary coil",sek:"Secondary coil",amm:"Ammeter",vol:"Voltmeter",wire:"Wire",sel:"Select",h1:"Virtual Circuit Board",ps:"Pick a component, then drag from one point to another. Click a component to change its type or value. Click a switch to open or close it.",closed:"closed",open:"open",volt:"Voltage",curr:"Current",pow:"Power",energy:"Energy",info:"Info",hint:"Pick a tool above, then drag between two points. Power source: the first end is the positive (+) terminal; switch between AC and DC in the panel. Place ammeters in series and voltmeters in parallel. Yellow dots = conventional current (+ to −), blue dots = electron flow (− to +). Green dot = connected, red dot = open end. A component connects only at its two ends, not at points along its body.",count:"Components",sel2:"Selected component",type:"Type (swap component)",srcT:"Source type",dc:"DC (direct)",ac:"AC (alternating)",amp:"Amplitude",val:"Value",freq:"Frequency",openSw:"Open switch",closeSw:"Close switch",del:"Delete component",conv:"Conventional current",elec:"Electron flow",off:"No animation",pause:"Pause",play:"Run",time:"Time",reset:"Reset time",ex:"Example",clear:"Clear",lang:"Bahasa Indonesia",full:"Full screen",exitFs:"Exit full screen",graph:"V-t graph",none:"— none —",win:"Window",kopl:"Coupling k",ratio:"Ratio Ns/Np",vmode:"Measurement mode",vdc:"DC (average)",vac:"AC (RMS)",vpk:"AC (Vmax / peak)",vhint:"AC signal detected: switch to AC (RMS) mode"}};
+const t=k=>D[LG][k],vs=c=>c.ac?c.val*Math.sin(2*Math.PI*c.f*time):c.val;
+function applyLang(){document.documentElement.lang=LG;document.title=t("h1");document.getElementById("h1").textContent=t("h1");document.getElementById("ps").textContent=t("ps");mkTools();mkCtl();mkGr();drawPanel()}
+function toggleFs(){fs=!fs;document.body.classList.toggle("fs",fs);try{if(fs&&document.documentElement.requestFullscreen)document.documentElement.requestFullscreen().catch(()=>{});else if(!fs&&document.fullscreenElement)document.exitFullscreen()}catch(e){}mkCtl()}
+document.addEventListener("fullscreenchange",()=>{if(!document.fullscreenElement&&fs){fs=false;document.body.classList.remove("fs");mkCtl()}});
+const px=([c,r])=>[OX+c*SP,OY+r*SP],key=([c,r])=>r*COLS+c;
+function fmt(x,u){const a=Math.abs(x);if(a>=1000)return(x/1000).toFixed(2)+" k"+u;if(a>=1)return x.toFixed(2)+" "+u;if(a>=1e-3)return(x*1e3).toFixed(2)+" m"+u;if(a>=1e-6)return(x*1e6).toFixed(1)+" µ"+u;return"0 "+u}
+function gOf(c){switch(c.type){case"res":case"lamp":return 1/Math.max(c.val,1e-3);case"vol":return 1e-8;case"bat":return 100;case"cap":return Math.max(c.val,1e-3)*1e-6/DT;case"coil":return DT/Math.max(c.val*1e-3,1e-6);case"prim":return TR?TR.ga:DT/(Math.max(c.val,1)**2*1e-5);case"sek":return TR?TR.gc:DT/(Math.max(c.val,1)**2*1e-5);case"dio":return c.dn?2:1e-9;case"sw":return c.on?1000:1e-9;default:return 1000}}
+function solve(commit){
+ let ch=1,k=0;
+ while(ch&&k++<8){solve1(false);ch=0;for(const c of comps)if(c.type=="dio"){const r=R[c.id];if(!r)continue;if(c.dn&&r.i<0){c.dn=false;ch=1}else if(!c.dn&&r.v>.7){c.dn=true;ch=1}}}
+ if(commit)vmUpd();
+ if(commit)for(const c of comps){const r=R[c.id];if(!r)continue;if(c.type=="cap")c.vc=r.v;if(c.type=="coil"||c.type=="prim"||c.type=="sek")c.il=r.i}
+}
+function solve1(commit){
+ R={};TR=null;if(!comps.length)return;
+ const P=comps.find(c=>c.type=="prim"),S=comps.find(c=>c.type=="sek");
+ if(P&&S){const L1=Math.max(P.val,1)**2*1e-5,L2=Math.max(S.val,1)**2*1e-5,M=kc*Math.sqrt(L1*L2),Dn=L1*L2-M*M;TR={P,S,ga:DT*L2/Dn,gc:DT*L1/Dn,gb:-DT*M/Dn}}
+ const ids=[...new Set(comps.flatMap(c=>[key(c.a),key(c.b)]))],ix=Object.fromEntries(ids.map((k,i)=>[k,i])),n=ids.length;
+ const G=Array.from({length:n},()=>new Array(n).fill(0)),I=new Array(n).fill(0);
+ for(const c of comps){const a=ix[key(c.a)],b=ix[key(c.b)],y=gOf(c);
+  G[a][a]+=y;G[b][b]+=y;G[a][b]-=y;G[b][a]-=y;
+  const s=c.type=="bat"?vs(c)*100:c.type=="cap"?y*c.vc:c.type=="coil"||c.type=="prim"||c.type=="sek"?-c.il:c.type=="dio"&&c.dn?y*.7:0;I[a]+=s;I[b]-=s}
+ if(TR){const a1=ix[key(TR.P.a)],b1=ix[key(TR.P.b)],a2=ix[key(TR.S.a)],b2=ix[key(TR.S.b)],g=TR.gb;
+  G[a1][a2]+=g;G[a1][b2]-=g;G[b1][a2]-=g;G[b1][b2]+=g;G[a2][a1]+=g;G[a2][b1]-=g;G[b2][a1]-=g;G[b2][b1]+=g}
+ for(let i=0;i<n;i++)G[i][i]+=1e-12;
+ const bt=comps.find(c=>c.type=="bat"),gi=bt?ix[key(bt.b)]:0;
+ const idx=[...Array(n).keys()].filter(i=>i!=gi),m=idx.length,A=idx.map(i=>[...idx.map(j=>G[i][j]),I[i]]);
+ for(let i=0;i<m;i++){let p=i;for(let r=i+1;r<m;r++)if(Math.abs(A[r][i])>Math.abs(A[p][i]))p=r;[A[i],A[p]]=[A[p],A[i]];
+  if(Math.abs(A[i][i])<1e-18)continue;for(let r=i+1;r<m;r++){const f=A[r][i]/A[i][i];for(let k=i;k<=m;k++)A[r][k]-=f*A[i][k]}}
+ const x=new Array(m).fill(0);for(let i=m-1;i>=0;i--){let s=A[i][m];for(let k=i+1;k<m;k++)s-=A[i][k]*x[k];x[i]=Math.abs(A[i][i])<1e-18?0:s/A[i][i]}
+ const V=new Array(n).fill(0);idx.forEach((i,k)=>V[i]=x[k]);
+ for(const c of comps){const d=V[ix[key(c.a)]]-V[ix[key(c.b)]],y=gOf(c);
+  const i=c.type=="bat"?vs(c)*100-d*100:c.type=="cap"?y*(d-c.vc):c.type=="coil"||c.type=="prim"||c.type=="sek"?y*d+c.il:c.type=="dio"&&c.dn?y*(d-.7):d*y;
+  R[c.id]={v:d,i};if(commit){if(c.type=="cap")c.vc=d;if(c.type=="coil")c.il=i}}
+ if(TR){const p=R[TR.P.id],s=R[TR.S.id];p.i+=TR.gb*s.v;s.i+=TR.gb*p.v}
+}
+function sym(c){
+ const[x1,y1]=px(c.a),[x2,y2]=px(c.b),L=Math.hypot(x2-x1,y2-y1),ang=Math.atan2(y2-y1,x2-x1)*180/Math.PI,col=`var(${T[c.type].c})`,h=L/2,r=R[c.id]||{v:0,i:0};
+ const lead=k=>`<path d="M0 0H${h-k}M${h+k} 0H${L}" stroke="${col}" stroke-width="2.5" fill="none"/>`;
+ const rot=(x,y,t)=>`<text x="${x}" y="${y}" fill="${col}" font-size="13" font-weight="700" text-anchor="middle" transform="rotate(${-ang} ${x} ${y})">${t}</text>`;
+ let b="",lab="";
+ switch(c.type){
+ case"wire":b=`<line x1="0" y1="0" x2="${L}" y2="0" stroke="${col}" stroke-width="3" stroke-linecap="round"/>`;break;
+ case"res":b=`<path d="M0 0H${h-17}l5-10 8 20 8-20 8 20 6-10H${L}" fill="none" stroke="${col}" stroke-width="2.5" stroke-linejoin="round"/>`;lab=c.val+" Ω";break;
+ case"bat":b=c.ac?`${lead(14)}<circle cx="${h}" cy="0" r="14" fill="var(--card)" stroke="${col}" stroke-width="2.5"/><path d="M${h-8} 0q4-9 8 0t8 0" fill="none" stroke="${col}" stroke-width="2"/>${rot(h-20,-9,"+")}`:`${lead(4)}<line x1="${h-4}" y1="-15" x2="${h-4}" y2="15" stroke="${col}" stroke-width="2.5"/><line x1="${h+4}" y1="-8" x2="${h+4}" y2="8" stroke="${col}" stroke-width="5"/>${rot(h-14,-9,"+")}`;lab=c.ac?c.val+" V~ "+c.f+" Hz":c.val+" V";break;
+ case"cap":b=`${lead(4)}<line x1="${h-4}" y1="-14" x2="${h-4}" y2="14" stroke="${col}" stroke-width="3"/><line x1="${h+4}" y1="-14" x2="${h+4}" y2="14" stroke="${col}" stroke-width="3"/>`;lab=c.val+" µF";break;
+ case"coil":b=`<path d="M0 0H${h-15}a5 5 0 0 1 10 0a5 5 0 0 1 10 0a5 5 0 0 1 10 0H${L}" fill="none" stroke="${col}" stroke-width="2.5"/>`;lab=c.val+" mH";break;
+ case"sw":b=`${lead(16)}<circle cx="${h-16}" cy="0" r="3" fill="${col}"/><circle cx="${h+16}" cy="0" r="3" fill="${col}"/><line x1="${h-16}" y1="0" x2="${c.on?h+16:h+11}" y2="${c.on?0:-14}" stroke="${col}" stroke-width="3" stroke-linecap="round"/>`;lab=c.on?t("closed"):t("open");break;
+ case"prim":case"sek":b=`<path d="M0 0H${h-15}a5 5 0 0 1 10 0a5 5 0 0 1 10 0a5 5 0 0 1 10 0H${L}" fill="none" stroke="${col}" stroke-width="2.5"/><path d="M${h-16} -9H${h+16}M${h-16} -11.5H${h+16}" stroke="${col}" stroke-width="1.5"/><circle cx="${h-19}" cy="7" r="2.5" fill="${col}"/>`;lab=c.val+" "+(c.type=="prim"?"Np":"Ns");break;
+ case"dio":b=`${lead(8)}<path d="M${h-8} -10L${h-8} 10L${h+8} 0Z" fill="${c.dn?col:"none"}" stroke="${col}" stroke-width="2.5" stroke-linejoin="round"/><line x1="${h+8}" y1="-10" x2="${h+8}" y2="10" stroke="${col}" stroke-width="3"/>`;break;
+ case"lamp":{const k=Math.min(1,Math.abs(r.v*r.i)/LAMP_P);b=`${lead(14)}${k>.05?`<circle cx="${h}" cy="0" r="22" fill="#ffd34d" opacity="${k*.35}"/>`:""}<circle cx="${h}" cy="0" r="14" fill="var(--card)" stroke="${col}" stroke-width="2.5"/><circle cx="${h}" cy="0" r="13" fill="#ffd34d" opacity="${k}"/><path d="M${h-7} -7L${h+7} 7M${h-7} 7L${h+7} -7" stroke="${col}" stroke-width="2"/>`;lab=c.val+" Ω";break}
+ default:b=`${lead(14)}<circle cx="${h}" cy="0" r="14" fill="var(--card)" stroke="${col}" stroke-width="2.5"/>${rot(h,5,c.type=="amm"?"A":"V")}`;lab=c.type=="amm"?fmt(Math.abs(r.i),"A"):fmt(vread(c),"V")+(c.vm=="pk"?" Vmax":c.vm=="ac"?" AC":" DC")+(vhint(c)?" (AC?)":"")+(dg[key(c.a)]<2||dg[key(c.b)]<2?" ⚠":"")}
+ const mx=(x1+x2)/2,my=(y1+y2)/2,hz=Math.abs(y2-y1)<Math.abs(x2-x1);
+ return `<g data-id="${c.id}" style="cursor:pointer"><line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="transparent" stroke-width="22" data-id="${c.id}"/>
+ <g transform="translate(${x1} ${y1}) rotate(${ang})" ${sel==c.id?'filter="drop-shadow(0 0 4px var(--acc))"':""}>${b}</g>
+ ${lab?`<text x="${hz?mx:mx+22}" y="${hz?my-22:my+4}" text-anchor="${hz?"middle":"start"}" font-size="12" font-weight="600" fill="${col}">${lab}</text>`:""}</g>`;
+}
+function dots(c){
+ const r=R[c.id];if(mode=="off"||!r||Math.abs(r.i)<1e-6)return"";
+ const[x1,y1]=px(c.a),[x2,y2]=px(c.b),L=Math.hypot(x2-x1,y2-y1),ux=(x2-x1)/L,uy=(y2-y1)/L,h=L/2,sk=c.type=="wire"?0:18,col=mode=="elec"?"#4aa3ff":"#ffb020";
+ let o="";for(let s=(((ph[c.id]||0)%14)+14)%14;s<L;s+=14){if(sk&&Math.abs(s-h)<sk)continue;o+=`<circle cx="${x1+ux*s}" cy="${y1+uy*s}" r="2.8" fill="${col}" pointer-events="none"/>`}
+ return o}
+function draw(){
+ dg={};comps.forEach(c=>{for(const p of[c.a,c.b]){const k=key(p);dg[k]=(dg[k]||0)+1}});
+ let nd="";for(const k in dg){nd+=`<circle cx="${OX+(k%COLS)*SP}" cy="${OY+Math.floor(k/COLS)*SP}" r="4.5" fill="${dg[k]>1?"var(--acc)":"var(--amm)"}" opacity=".85" pointer-events="none"/>`}
+ let g=comps.map(sym).join("")+nd+comps.map(dots).join("");
+ if(drag&&drag.to){const[x1,y1]=px(drag.from),[x2,y2]=px(drag.to);g+=`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="var(--acc)" stroke-width="3" stroke-dasharray="6 5"/>`}
+ if(drag){const[x,y]=px(drag.from);g+=`<circle cx="${x}" cy="${y}" r="7" fill="none" stroke="var(--acc)" stroke-width="2"/>`}
+ dyn.innerHTML=g}
+function readout(){const e=document.getElementById("ro"),c=comps.find(c=>c.id==sel);if(!e||!c)return;const r=R[c.id]||{v:0,i:0};
+ e.innerHTML=`${t("volt")}: <b>${c.type=="vol"?fmt(vread(c),"V"):fmt(Math.abs(r.v),"V")}</b><br>${t("curr")}: <b>${fmt(Math.abs(r.i),"A")}</b>`+(c.type=="res"||c.type=="lamp"?`<br>${t("pow")}: <b>${fmt(Math.abs(r.v*r.i),"W")}</b>`:"")+(c.type=="cap"?`<br>${t("energy")}: <b>${fmt(.5*c.val*1e-6*c.vc*c.vc,"J")}</b>`:"")+(c.type=="vol"&&vhint(c)?`<br><b style="color:var(--amm)">${t("vhint")}</b>`:"")+(c.type=="prim"||c.type=="sek"?`<br>${t("ratio")}: <b>${(TR?TR.S.val/TR.P.val:0).toFixed(2)}</b>`:"")+(c.type=="coil"?`<br>${t("energy")}: <b>${fmt(.5*c.val*1e-3*c.il*c.il,"J")}</b>`:"")}
+function drawPanel(){
+ const c=comps.find(c=>c.id==sel);
+ if(!c){panel.innerHTML=`<h2>${t("info")}</h2><div class="hint">${t("hint")}<br><br>${t("count")}: ${comps.length}</div>`;return}
+ const u=T[c.type].u;
+ panel.innerHTML=`<h2>${t("sel2")}</h2><label>${t("type")}</label><select id="ty">${Object.entries(T).map(([k,v])=>`<option value="${k}" ${k==c.type?"selected":""}>${t(k)}</option>`).join("")}</select>
+ ${c.type=="bat"?`<label>${t("srcT")}</label><select id="ac"><option value="0" ${c.ac?"":"selected"}>${t("dc")}</option><option value="1" ${c.ac?"selected":""}>${t("ac")}</option></select>`:""}${u?`<label>${c.type=="bat"&&c.ac?t("amp"):t("val")} (${u})</label><input id="vl" type="number" step="any" min="0" value="${c.val}">`:""}
+ ${c.type=="vol"?`<label>${t("vmode")}</label><select id="vm"><option value="dc" ${c.vm=="ac"||c.vm=="pk"?"":"selected"}>${t("vdc")}</option><option value="ac" ${c.vm=="ac"?"selected":""}>${t("vac")}</option><option value="pk" ${c.vm=="pk"?"selected":""}>${t("vpk")}</option></select>`:""}${c.type=="bat"&&c.ac?`<label>${t("freq")} (Hz)</label><input id="fq" type="number" step="any" min="0.1" value="${c.f}">`:""}${c.type=="prim"||c.type=="sek"?`<label>${t("kopl")}</label><input id="kc" type="number" step="0.01" min="0" max="0.999" value="${kc}">`:""}${c.type=="sw"?`<button id="tg">${c.on?t("openSw"):t("closeSw")}</button>`:""}
+ <div class="ro" id="ro"></div><button class="del" id="dl">${t("del")}</button>`;
+ document.getElementById("ty").onchange=e=>{c.type=e.target.value;c.val=T[c.type].v||0;c.on=true;c.vc=0;c.il=0;drawPanel()};
+ const vl=document.getElementById("vl");if(vl)vl.oninput=e=>{c.val=Math.max(0,parseFloat(e.target.value)||0)};
+ const tg=document.getElementById("tg");if(tg)tg.onclick=()=>{c.on=!c.on;drawPanel()};
+ const ac=document.getElementById("ac");if(ac)ac.onchange=e=>{c.ac=e.target.value=="1";drawPanel()};
+ const vm=document.getElementById("vm");if(vm)vm.onchange=e=>{c.vm=e.target.value;c.rb=[];drawPanel()};
+ const kq=document.getElementById("kc");if(kq)kq.oninput=e=>{kc=Math.min(.999,Math.max(0,parseFloat(e.target.value)||0))};
+ const fq=document.getElementById("fq");if(fq)fq.oninput=e=>{c.f=Math.max(.1,parseFloat(e.target.value)||50)};
+ document.getElementById("dl").onclick=()=>{comps=comps.filter(x=>x.id!=c.id);sel=null;drawPanel()};
+}
+function mkTools(){
+ tb.innerHTML=[["sel",t("sel")],...Object.keys(T).map(k=>[k,t(k)])].map(([k,n])=>`<button data-t="${k}" class="${k==tool?"on":""}">${n}</button>`).join("");
+ sv.style.touchAction=tool=="sel"?"pan-x pan-y":"none";
+ tb.querySelectorAll("[data-t]").forEach(b=>b.onclick=()=>{tool=b.dataset.t;mkTools()});
+}
+function mkCtl(){
+ const M=[["conv",t("conv")],["elec",t("elec")],["off",t("off")]];
+ ctl.innerHTML=`<button id="pl">${run?t("pause"):t("play")}</button>`+M.map(([k,n])=>`<button data-m="${k}" class="${k==mode?"on":""}">${n}</button>`).join("")+
+ `<select id="sc">${[1,.1,.01,.002].map(s=>`<option value="${s}" ${s==scale?"selected":""}>${t("time")} ${s}×</option>`).join("")}</select><button id="rs">${t("reset")}</button><button id="ex">${t("ex")}</button><button id="cl">${t("clear")}</button><button id="lg">🌐 ${t("lang")}</button><button id="fs" class="${fs?"on":""}">${fs?t("exitFs"):t("full")}</button><button id="gb" class="${gr.on?"on":""}">${t("graph")}</button><span class="t" id="tl"></span>`;
+ document.getElementById("pl").onclick=()=>{run=!run;mkCtl()};
+ ctl.querySelectorAll("[data-m]").forEach(b=>b.onclick=()=>{mode=b.dataset.m;mkCtl()});
+ document.getElementById("sc").onchange=e=>scale=+e.target.value;
+ document.getElementById("rs").onclick=()=>{time=0;acc=0;gr.buf=[];comps.forEach(c=>{c.vc=0;c.il=0;c.rb=[]})};
+ document.getElementById("ex").onclick=()=>{preset();pi=(pi+1)%PRE.length};
+ document.getElementById("cl").onclick=()=>{comps=[];sel=null;drawPanel()};
+ document.getElementById("lg").onclick=()=>{LG=LG=="id"?"en":"id";applyLang()};
+ document.getElementById("fs").onclick=toggleFs;
+ document.getElementById("gb").onclick=()=>{gr.on=!gr.on;gr.buf=[];document.getElementById("gr").style.display=gr.on?"block":"none";mkCtl();mkGr()};
+}
+function add(type,a,b,val){comps.push({id:nid++,type,a,b,val:val??(T[type].v||0),on:true,vc:0,il:0,ac:false,f:50,dn:false,vm:comps.some(x=>x.type=="bat"&&x.ac)?"ac":"dc"})}
+const PRE=[
+()=>{add("bat",[3,1],[3,6]);add("sw",[3,1],[6,1]);add("res",[6,1],[10,1],100);add("cap",[10,1],[10,6]);add("lamp",[13,1],[13,6],200);add("wire",[10,1],[13,1]);add("wire",[13,6],[10,6]);add("wire",[10,6],[3,6])},
+()=>{add("bat",[3,1],[3,6]);add("sw",[3,1],[6,1]);add("coil",[6,1],[10,1],500);add("lamp",[10,1],[10,6]);add("wire",[10,6],[3,6])},
+()=>{add("bat",[3,1],[3,6]);add("amm",[3,1],[6,1]);add("res",[6,1],[10,1]);add("res",[10,1],[10,6],200);add("wire",[10,6],[3,6]);add("wire",[10,1],[13,1]);add("vol",[13,1],[13,6]);add("wire",[13,6],[10,6])},
+()=>{add("bat",[3,1],[3,6]);comps[0].ac=true;add("dio",[3,1],[7,1]);add("res",[7,1],[7,6],100);add("wire",[7,6],[3,6]);gr.on=true;gr.c2=comps[2].id;document.getElementById("gr").style.display="block";mkCtl();mkGr()},
+()=>{add("bat",[3,1],[3,6]);comps[0].ac=true;add("wire",[3,1],[6,1]);add("prim",[6,1],[6,6]);add("wire",[6,6],[3,6]);add("sek",[9,1],[9,6]);add("wire",[9,1],[12,1]);add("res",[12,1],[12,6],100);add("wire",[12,6],[9,6]);gr.on=true;gr.c1=comps[2].id;gr.c2=comps[6].id;document.getElementById("gr").style.display="block";mkCtl();mkGr()}];
+function preset(){comps=[];sel=null;time=0;acc=0;gr.buf=[];PRE[pi]();drawPanel()}
+function snap(e){const r=sv.getBoundingClientRect(),x=(e.clientX-r.left)*680/r.width,y=(e.clientY-r.top)*380/r.height;
+ return[Math.max(0,Math.min(COLS-1,Math.round((x-OX)/SP))),Math.max(0,Math.min(ROWS-1,Math.round((y-OY)/SP)))]}
+sv.onpointerdown=e=>{
+ const el=e.target.closest&&e.target.closest("[data-id]"),id=el&&el.dataset.id;
+ if(tool=="sel"){sel=id?+id:null;const c=comps.find(c=>c.id==sel);if(c&&c.type=="sw")c.on=!c.on;drawPanel();return}
+ sv.setPointerCapture(e.pointerId);drag={from:snap(e),to:null}};
+sv.onpointermove=e=>{if(!drag)return;const p=snap(e);drag.to=key(p)!=key(drag.from)?p:null};
+sv.onpointerup=e=>{if(!drag)return;const p=snap(e);
+ if(key(p)!=key(drag.from)){add(tool,drag.from,p);sel=nid-1;tool="sel";mkTools();drag=null;drawPanel();return}
+ drag=null};
+let TR=null,kc=.98,vstep=0,dg={};
+function vmUpd(){vstep++;const A=comps.find(c=>c.type=="bat"&&c.ac),per=Math.max(1,Math.round((A?1/Math.max(A.f,1):.02)/40/DT));if(vstep%per)return;for(const c of comps)if(c.type=="vol"){const r=R[c.id];if(!r)continue;(c.rb=c.rb||[]).push(r.v);if(c.rb.length>40)c.rb.shift()}}
+function vhint(c){const b=c.rb;if(c.vm=="ac"||c.vm=="pk"||!b||b.length<20)return false;const rm=Math.sqrt(b.reduce((s,v)=>s+v*v,0)/b.length),mn=Math.abs(b.reduce((s,v)=>s+v,0)/b.length);return rm>.05&&mn<.1*rm}
+function vread(c){const b=c.rb;if(!b||!b.length){const r=R[c.id];return r?r.v:0}return c.vm=="pk"?Math.max(...b.map(Math.abs)):c.vm=="ac"?Math.sqrt(b.reduce((s,v)=>s+v*v,0)/b.length):b.reduce((s,v)=>s+v,0)/b.length}
+const gr={on:false,c1:null,c2:null,win:.04,buf:[],sig:""};let dc=0;
+function chOpts(s,none){return(none?`<option value="">${t("none")}</option>`:"")+comps.map(c=>`<option value="${c.id}" ${c.id==s?"selected":""}>${t(c.type)} #${c.id}</option>`).join("")}
+function mkGr(){
+ const e=document.getElementById("grc");if(!e)return;gr.sig=comps.map(c=>c.id+c.type).join();
+ const ok=id=>comps.some(c=>c.id==id);
+ if(!ok(gr.c1))gr.c1=comps.length?(comps.find(c=>c.type=="bat")||comps[0]).id:null;
+ if(gr.c2!=null&&!ok(gr.c2))gr.c2=null;
+ e.innerHTML=`<b>${t("graph")}</b> <span style="color:var(--bat)">CH1</span><select id="c1">${chOpts(gr.c1,0)}</select><span style="color:var(--res)">CH2</span><select id="c2">${chOpts(gr.c2,1)}</select>${t("win")}<select id="gw">${[.005,.02,.04,.1,.5].map(w=>`<option value="${w}" ${w==gr.win?"selected":""}>${w*1000} ms</option>`).join("")}</select>`;
+ document.getElementById("c1").onchange=e=>{gr.c1=+e.target.value;gr.buf=[]};
+ document.getElementById("c2").onchange=e=>{gr.c2=e.target.value?+e.target.value:null;gr.buf=[]};
+ document.getElementById("gw").onchange=e=>{gr.win=+e.target.value;gr.buf=[]};
+}
+function smp(){const dec=Math.max(1,Math.round(gr.win/DT/300));if(++dc%dec)return;const a=R[gr.c1],b=R[gr.c2];gr.buf.push([time,a?a.v:0,b?b.v:0]);while(gr.buf.length&&gr.buf[0][0]<time-gr.win)gr.buf.shift()}
+function drawGr(){
+ const cv=document.getElementById("cv");if(!gr.on||!cv)return;
+ if(gr.sig!=comps.map(c=>c.id+c.type).join())mkGr();
+ const dpr=window.devicePixelRatio||1,W=cv.clientWidth,H=cv.clientHeight;if(!W)return;
+ if(cv.width!=Math.round(W*dpr)||cv.height!=Math.round(H*dpr)){cv.width=Math.round(W*dpr);cv.height=Math.round(H*dpr)}
+ const x=cv.getContext("2d"),cs=getComputedStyle(document.documentElement),col=n=>cs.getPropertyValue(n).trim(),hb=gr.c2!=null;
+ x.setTransform(dpr,0,0,dpr,0,0);x.clearRect(0,0,W,H);
+ let m=.1;for(const p of gr.buf)m=Math.max(m,Math.abs(p[1]),hb?Math.abs(p[2]):0);m*=1.15;
+ const L0=48,pd=10,top=pd,bot=H-18,t0=time-gr.win,X=tt=>L0+(tt-t0)/gr.win*(W-L0-pd),Y=v=>top+(m-v)/(2*m)*(bot-top);
+ x.font="11px system-ui";x.lineWidth=1;
+ for(const v of[m,m/2,0,-m/2,-m]){x.strokeStyle=col(v==0?"--mut":"--line");x.beginPath();x.moveTo(L0,Y(v));x.lineTo(W-pd,Y(v));x.stroke();x.fillStyle=col("--mut");x.fillText(fmt(v,"V").replace(" ",""),2,Y(v)+4)}
+ for(let k=0;k<=4;k++){const tt=t0+gr.win*k/4,xx=X(tt);x.strokeStyle=col("--line");x.beginPath();x.moveTo(xx,top);x.lineTo(xx,bot);x.stroke();x.fillStyle=col("--mut");x.fillText(fmt(Math.max(tt,0),"s").replace(" ",""),Math.min(xx,W-40),H-4)}
+ for(const k of hb?[1,2]:[1]){x.strokeStyle=col(k==1?"--bat":"--res");x.lineWidth=2;x.beginPath();gr.buf.forEach((p,i)=>{const px_=X(p[0]),py=Y(p[k]);i?x.lineTo(px_,py):x.moveTo(px_,py)});x.stroke()}
+}
+let last=0;
+function frame(t){
+ const fdt=Math.min(.05,(t-last)/1000||.016);last=t;
+ if(run){acc+=fdt*scale;let n=0;while(acc>=DT&&n<400){solve(true);acc-=DT;time+=DT;n++;if(gr.on)smp()}if(n==0)solve(false);if(acc>=DT)acc=0;
+  for(const c of comps){const r=R[c.id];if(!r)continue;const a=Math.abs(r.i);if(a<1e-6)continue;
+   ph[c.id]=(ph[c.id]||0)+Math.sign(r.i)*(mode=="elec"?-1:1)*Math.min(140,25+40*Math.log10(1+a*1e4))*fdt}}
+ else solve(false);
+ draw();readout();drawGr();const tl=document.getElementById("tl");if(tl)tl.textContent="t = "+fmt(time,"s");
+ requestAnimationFrame(frame)}
+applyLang();preset();pi=1;requestAnimationFrame(frame);
+</script><script>if("serviceWorker"in navigator&&/^https?:/.test(location.protocol)){addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}))}</script>
+</body></html>

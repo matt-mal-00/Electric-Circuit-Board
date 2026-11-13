@@ -1,0 +1,17 @@
+{
+  "name": "Papan Sirkuit Virtual",
+  "short_name": "Sirkuit",
+  "description": "Simulator rangkaian listrik: resistor, baterai AC/DC, kapasitor, kumparan, dioda, trafo, dan grafik V-t.",
+  "lang": "id",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f4f6f3",
+  "theme_color": "#1f8a5b",
+  "icons": [
+    {"src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+    {"src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+    {"src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}
+  ]
+}
